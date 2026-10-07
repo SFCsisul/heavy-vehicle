@@ -191,9 +191,9 @@
   // VWorld(국토교통부 공간정보 오픈플랫폼) 인증키를 아래 따옴표 안에 붙여넣으세요.
   //   - 발급: https://www.vworld.kr  → 오픈API → 인증키 발급
   //   - 발급 시 [WMTS/TMS API] 체크, 서비스 URL에는 이 페이지가 올라갈 주소 입력
-  // 키를 넣으면 VWorld가 기본 지도가 됩니다. 비워두면 OpenStreetMap이 기본입니다.
+  // 키를 넣으면 VWorld 일반지도/위성영상이 표시됩니다. (키가 비어 있으면 배경지도가 나오지 않습니다)
   // =============================================
-  const VWORLD_KEY = '';  // 예: 'ABCD1234-5678-....'
+  const VWORLD_KEY = '2AE06F6E-808E-4A9E-B36C-27896C4705D3';  // 예: 'ABCD1234-5678-....'
 
   const VW = 'https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY;
   const vwOpt = { maxZoom: 19, maxNativeZoom: 18, attribution: '© <a href="https://www.vworld.kr">VWorld</a>(국토교통부)' };
@@ -206,44 +206,20 @@
       L.tileLayer(VW + '/Hybrid/{z}/{y}/{x}.png', Object.assign({}, vwOpt, { attribution: '' }))
     ]);
   }
-  baseLayers['OpenStreetMap'] = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  });
-  baseLayers['Esri 거리지도'] = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19, maxNativeZoom: 17, attribution: 'Tiles © Esri'
-  });
-
-  const baseNames = Object.keys(baseLayers);
-  baseLayers[baseNames[0]].addTo(map);
-  L.control.layers(baseLayers, null, { position: 'topright', collapsed: false }).addTo(map);
-
-  // 키가 비어 있으면 화면 하단에 안내 표시
-  if (!VWORLD_KEY) {
-    console.warn('[지도] VWORLD_KEY가 비어 있습니다. OpenStreetMap으로 표시합니다.');
+  // 지도 선택 버튼 (VWorld 일반지도 / 위성영상)
+  if (VWORLD_KEY) {
+    baseLayers['VWorld 일반지도'].addTo(map);
+    L.control.layers(baseLayers, null, { position: 'topright', collapsed: false }).addTo(map);
+  } else {
+    // 키가 비어 있으면 화면 하단에 안내 표시
+    console.warn('[지도] VWORLD_KEY가 비어 있어 배경지도를 표시할 수 없습니다.');
     const tip = document.createElement('div');
     tip.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:1000;' +
       'background:#fff8e1;border:1px solid #f0c36d;color:#7a5200;padding:8px 14px;border-radius:8px;' +
       'font:13px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.15);';
-    tip.textContent = 'VWorld 인증키가 설정되지 않아 임시 지도(OpenStreetMap)로 표시 중입니다.';
+    tip.textContent = 'VWorld 인증키(VWORLD_KEY)가 설정되지 않아 배경지도가 표시되지 않습니다.';
     document.body.appendChild(tip);
   }
-
-  // 기본 지도의 타일 요청이 계속 실패하면 다음 지도로 자동 전환
-  baseNames.forEach((n, i) => {
-    const layers = baseLayers[n].getLayers ? baseLayers[n].getLayers() : [baseLayers[n]];
-    let ok = 0, err = 0;
-    layers.forEach(l => {
-      l.on('tileload', () => { ok++; });
-      l.on('tileerror', () => {
-        err++;
-        if (ok === 0 && err === 4 && map.hasLayer(baseLayers[n]) && i + 1 < baseNames.length) {
-          map.removeLayer(baseLayers[n]);
-          baseLayers[baseNames[i + 1]].addTo(map);
-        }
-      });
-    });
-  });
 
   // =============================================
   // 서울 경계선 표시
