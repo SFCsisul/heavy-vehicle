@@ -20,15 +20,54 @@
       border-radius: 18px;
       box-shadow: 0 3px 10px rgba(0,0,0,0.2);
       padding: 21px 24px;
-      width: 330px;
+      width: 350px;
+      max-height: calc(100vh - 20px);
+      overflow-y: auto;
       font-size: 19px;
       color: #333;
     }
     .info-header {
       font-weight: bold;
       font-size: 22px;
+      margin-bottom: 10px;
+    }
+    .info-desc {
+      font-size: 15px;
+      line-height: 1.5;
+      color: #444;
+      margin-bottom: 10px;
+    }
+    .info-def {
+      background: #eef4fb;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #3d4f66;
       margin-bottom: 15px;
     }
+    .info-def b { color: #24456e; }
+    .info-list-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 8px;
+      margin: 2px -8px;
+      border-radius: 8px;
+      font-size: 17px;
+      cursor: pointer;
+    }
+    .info-list-item:hover { background: #f1f3f5; }
+    .info-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .info-list-go { margin-left: auto; color: #999; font-size: 14px; }
+    .info-note {
+      border-top: 1px solid #eee;
+      padding-top: 10px;
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: #666;
+    }
+    .info-date { margin-top: 4px; font-size: 13.5px; color: #888; }
     .info-total {
       background: #f5f5f5;
       border-radius: 12px;
@@ -180,6 +219,13 @@
       ]
     }
   ];
+
+  // 왼쪽 위 안내 박스에 표시되는 문구 (여기서 수정하세요)
+  const PANEL_INFO = {
+    description: '서울시설공단이 관리하는 자동차전용도로 시설물 중, 중차량 통행이 제한되는 구간을 보여주는 지도입니다.',
+    heavyVehicleDef: '<b>축하중이 10톤을 초과하거나 총중량이 40톤을 초과하는 차량</b>을 말합니다.',
+    baseDate: '2026.10.07'   // 데이터를 바꿀 때 이 날짜도 함께 수정하세요
+  };
   // =============================================
 
   // 지도 초기화 (서울 중심)
@@ -320,18 +366,22 @@
     console.error("서울 경계 표시 중 오류:", e);
   }
 
-  // 색상 구분
-  const typeColors = {
-    'BOX': '#e67e22',
-    'STB': '#8e44ad',
-    '기타': '#2980b9'
-  };
+  // 색상 구분: 제한 사유별로 색을 자동 지정 (사유가 늘어나도 자동으로 다음 색 사용)
+  const REASON_PALETTE = ['#e67e22', '#8e44ad', '#2980b9', '#27ae60', '#c0392b', '#16a085'];
+  const reasonColors = {};
+  restrictionZones.forEach(zone => {
+    const r = zone.reason || '기타';
+    if (!(r in reasonColors)) {
+      reasonColors[r] = REASON_PALETTE[Object.keys(reasonColors).length % REASON_PALETTE.length];
+    }
+  });
+
+  // 안내 박스의 시설물 목록에서 지도 이동에 사용할 정보
+  const zoneRefs = [];
 
   // 제한 구역 선 그리기
   restrictionZones.forEach(zone => {
-    // 분류(예: "3종, BOX")에서 구조 형식만 추출해 색상 매핑에 사용
-    const structureType = (zone.classification.split(',')[1] || '').trim();
-    const color = typeColors[structureType] || typeColors['기타'];
+    const color = reasonColors[zone.reason || '기타'];
 
     // 하나의 시설물이 서로 떨어진 여러 구간(segments)으로 이루어질 수 있음
     // (예: 내곡IC처럼 램프가 여러 개인 경우). coordinates만 있으면 단일 구간으로 취급.
@@ -373,25 +423,36 @@
       }
     });
 
-    L.marker(labelPoint, {
+    const labelMarker = L.marker(labelPoint, {
       icon: L.divIcon({
         html: `<div style="background:${color};color:black;padding:2px 6px;border-radius:4px;font-size:13px;white-space:nowrap;font-weight:bold;">${zone.name}</div>`,
         className: '',
         iconAnchor: [0, 0]
       })
     }).addTo(map).bindPopup(sharedPopup);
+
+    zoneRefs.push({
+      zone: zone,
+      color: color,
+      popup: sharedPopup,
+      marker: labelMarker,
+      bounds: L.latLngBounds(segments.reduce((all, seg) => all.concat(seg), []))
+    });
   });
 
   // 정보 패널 (왼쪽 위) - 시설물 데이터가 바뀌면 통계가 자동으로 다시 집계됩니다.
   const infoPanel = L.control({ position: 'topleft' });
   infoPanel.onAdd = function() {
     const div = L.DomUtil.create('div', 'info-panel');
+    // 패널 위에서 스크롤/클릭해도 지도가 같이 움직이지 않도록 함
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
 
-    // 구조 형식별 개수 집계
-    const typeCounts = {};
+    // 제한 사유별 개수 집계
+    const reasonCounts = {};
     restrictionZones.forEach(zone => {
-      const structureType = (zone.classification.split(',')[1] || '기타').trim();
-      typeCounts[structureType] = (typeCounts[structureType] || 0) + 1;
+      const r = zone.reason || '기타';
+      reasonCounts[r] = (reasonCounts[r] || 0) + 1;
     });
 
     // 안전등급별 개수 집계
@@ -401,35 +462,63 @@
       gradeCounts[grade] = (gradeCounts[grade] || 0) + 1;
     });
 
-    const typeRows = Object.keys(typeColors).filter(type => type !== '기타').map(type => {
-      const count = typeCounts[type] || 0;
-      return `
+    const reasonRows = Object.keys(reasonCounts).map(reason => `
         <div class="info-row">
-          <span class="info-swatch" style="background:${typeColors[type]}"></span>
-          <span>${type}</span>
-          <span class="info-count">${count}개소</span>
-        </div>`;
-    }).join('');
+          <span class="info-swatch" style="background:${reasonColors[reason]}"></span>
+          <span>${reason}</span>
+          <span class="info-count">${reasonCounts[reason]}개소</span>
+        </div>`).join('');
 
     const gradeRows = Object.keys(gradeCounts).map(grade =>
       `<span class="info-badge">${grade} ${gradeCounts[grade]}개소</span>`
     ).join('');
 
+    const listRows = zoneRefs.map((ref, i) => `
+        <div class="info-list-item" data-idx="${i}">
+          <span class="info-dot" style="background:${ref.color}"></span>
+          <span>${ref.zone.name}</span>
+          <span class="info-list-go">위치 보기 ›</span>
+        </div>`).join('');
+
     div.innerHTML = `
       <div class="info-header">🚛 중차량 운행 제한 구역</div>
+      <div class="info-desc">${PANEL_INFO.description}</div>
+      <div class="info-def"><b>중차량이란?</b><br>${PANEL_INFO.heavyVehicleDef}</div>
       <div class="info-total">
         <span class="info-total-label">총 시설물</span>
         <span class="info-total-value">${restrictionZones.length}개소</span>
       </div>
       <div class="info-section">
-        <div class="info-section-title">구조 형식</div>
-        ${typeRows}
+        <div class="info-section-title">제한 사유별 현황</div>
+        ${reasonRows}
       </div>
       <div class="info-section">
         <div class="info-section-title">안전등급 현황</div>
         <div class="info-badges">${gradeRows}</div>
       </div>
+      <div class="info-section">
+        <div class="info-section-title">시설물 목록</div>
+        ${listRows}
+      </div>
+      <div class="info-note">
+        💡 지도의 색선이나 이름표를 누르면 상세 정보가 표시되고, 위 목록을 누르면 해당 위치로 이동합니다.
+        <div class="info-date">기준일: ${PANEL_INFO.baseDate}</div>
+      </div>
     `;
+
+    // 목록 클릭 → 해당 시설물 위치로 이동 후 상세 정보 팝업 열기
+    div.querySelectorAll('.info-list-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const ref = zoneRefs[Number(el.getAttribute('data-idx'))];
+        zoneRefs.forEach(r => map.closePopup(r.popup));
+        map.fitBounds(ref.bounds, {
+          paddingTopLeft: [420, 80],     // 왼쪽 안내 박스에 가려지지 않도록 여백
+          paddingBottomRight: [80, 80],
+          maxZoom: 16
+        });
+        setTimeout(() => ref.marker.openPopup(), 700);
+      });
+    });
     return div;
   };
   infoPanel.addTo(map);
